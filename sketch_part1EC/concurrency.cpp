@@ -1,45 +1,48 @@
 #include <stdio.h>
 #include <avr/io.h>
 #include <stdlib.h>
+#include <Arduino.h>
+#include <time.h>
 #include "concurrency.h"
 #define INIT_SIZE (10)
 
 /* ========= START OF Priority Queue Implementation ========= */
 
-int PriorityQueueInit(PriorityQueue * p){
+const char * logFile = "RTConcurrency.txt";
+int PriorityQueueInit(PriorityQueue * p) {
   p->max_size = INIT_SIZE;
   p->num_nodes = 0;
-  for (int i = 0; i < 257; i++){
-    // Max priority is 256 and is reserved for rt jobs. 
+  for (int i = 0; i < 257; i++) {
+    // Max priority is 256 and is reserved for rt jobs.
     // Other jobs have priority 0 -> 255
     p->usedPriority[i] = NULL;
   }
-  p->heap = malloc(sizeof (process_t *) * (INIT_SIZE));
-  if (!p->heap){
+  p->heap = (process_t **)malloc(sizeof (process_t *) * (INIT_SIZE));
+  if (!p->heap) {
     return -1;
   }
-  
-  for (int i = 0; i < INIT_SIZE; i++){
+
+  for (int i = 0; i < INIT_SIZE; i++) {
     p->heap[i] = NULL;
   }
   return 0;
 }
 
-void heapify(process_t ** heap, int curr, int count){
+void heapify(process_t ** heap, int curr, int count) {
   int left, right, largest;
   process_t * temp;
-  left = 2*curr + 1;
-  right = left +1;
+  left = 2 * curr + 1;
+  right = left + 1;
   largest = curr;
 
-  if (left <= count && heap[left]->priority > heap[largest]->priority){
+  if (left <= count && heap[left]->priority > heap[largest]->priority) {
     largest = left;
   }
-  if (right <= count && heap[right]->priority > heap[largest]->priority){
+  if (right <= count && heap[right]->priority > heap[largest]->priority) {
     largest = right;
   }
 
-  if (largest != curr){
+  if (largest != curr) {
     temp = heap[curr];
     heap[curr] = heap[largest];
     heap[largest] = temp;
@@ -47,26 +50,28 @@ void heapify(process_t ** heap, int curr, int count){
   }
 }
 
-int pushPQueue (PriorityQueue * h, process_t * newElem){
+int pushPQueue (PriorityQueue * h, process_t * newElem) {
   int index, parent;
   // resize heap in priority queue if too small
-  if (h->num_nodes == h->max_size){
-    h->max_size *=2;
-    h->heap = realloc(h->heap, sizeof(process_t *) * h->max_size);
-    for (int i = h->max_size/2; i < h->max_size; i++){
+  if (h->num_nodes == h->max_size) {
+    h->max_size *= 2;
+    h->heap = (process_t **)realloc(h->heap, sizeof(process_t *) * h->max_size);
+    for (int i = h->max_size / 2; i < h->max_size; i++) {
       h->heap[i] = NULL;
     }
     if (!h->heap)
       return -1;
   }
   process_t * t;
-  if ((t = h->usedPriority[newElem->priority]) == NULL){
-    // if there is no node with that priority, find start index; 
+
+  if ((t = h->usedPriority[newElem->priority]) == NULL) {
+    // if there is no node with that priority, find start index;
     // Gives first available space in array
-    index = h->num_nodes; 
+    // First Real time job will be added in same way
+    index = h->num_nodes;
     h->num_nodes++;
     // Find location of element
-    for (; index; index = parent){
+    for (; index; index = parent) {
       parent = (index - 1) / 2 ;
       if (h->heap[parent]->priority >= newElem->priority)
         break;
@@ -74,10 +79,21 @@ int pushPQueue (PriorityQueue * h, process_t * newElem){
     }
     h->heap[index] = newElem;
     h->usedPriority[newElem->priority] = newElem;
-  } else{
-    // heap contains index with same priority. Find empty space at end of linked list
+  } else if (newElem->priority == 256) {
+    
+    // if priority == 256, calculate position to insert element
+    
+    process_t * curr = t;
+    // locate node before insertion point
+    while (curr->next != NULL && curr->next->finish_time < newElem->finish_time) {
+      curr = curr->next;
+    }
+    newElem->next = curr->next;
+    curr->next = newElem;
+    
+  } else { // heap contains index with same priority. Find empty space at end of linked list
     process_t * temp = t;
-    while(temp && temp->next != NULL){
+    while (temp && temp->next != NULL) {
       temp = temp->next;
     }
     temp->next = newElem;
@@ -86,34 +102,34 @@ int pushPQueue (PriorityQueue * h, process_t * newElem){
   return 0;
 }
 
-process_t * popPQueue(PriorityQueue * h){
-  if (h->num_nodes == 0){
+process_t * popPQueue(PriorityQueue * h) {
+  if (h->num_nodes == 0) {
     return NULL;
   }
   process_t * removed;
-  process_t * temp = h->heap[h->num_nodes-1];
+  process_t * temp = h->heap[h->num_nodes - 1];
   // You can dynamically downsize this queue but I'm too lazy to
   removed = h->heap[0];
   h->heap[0] = h->heap[0]->next;
-  
-  if (h->heap[0] == NULL){
+
+  if (h->heap[0] == NULL) {
     h->num_nodes--;
-    // Last node that that priority removed. Update usedPriority and heapify.
+    // Last node that specified priority removed. Update usedPriority and heapify.
     h->usedPriority[removed->priority] = NULL;
     h->heap[0] = temp;
     heapify(h->heap, 0, h->num_nodes);
-  } else{
+  } else {
     h->usedPriority[removed->priority] = h->heap[0];
     removed->next = NULL;
   }
   return removed;
 }
 
-int destroyPQueue(PriorityQueue * h){
+int destroyPQueue(PriorityQueue * h) {
   process_t * temp;
-  while (h->num_nodes != 0){
+  while (h->num_nodes != 0) {
     temp =  popPQueue(h);
-    if (temp != NULL){
+    if (temp != NULL) {
       free(temp);
     }
   }
@@ -122,24 +138,28 @@ int destroyPQueue(PriorityQueue * h){
   return 0;
 }
 
-int PriorityQueueIsEmpty(PriorityQueue * h){
+int PriorityQueueIsEmpty(PriorityQueue * h) {
   if (h->num_nodes == 0)
     return 1;
   else
     return 0;
 }
 
-void displayPQueue(PriorityQueue * h){
-  for (int i = 0; i < h->num_nodes; i++){
+void displayPQueue(PriorityQueue * h) {
+  for (int i = 0; i < h->num_nodes; i++) {
     process_t * temp = h->heap[i];
     printf("|(%i:%i): ", i, temp->priority);
-    while (temp != NULL){
+    while (temp != NULL) {
       printf("%i ", temp->sp);
       temp = temp->next;
     }
     printf("\n");
   }
-    printf("*************************\n");
+  printf("*************************\n");
+}
+
+process_t * peekPQueue(PriorityQueue * h){
+  return h->heap[0];
 }
 
 /* ========= END OF Priority Queue Implementation ========= */
@@ -158,7 +178,7 @@ __attribute__((used)) void process_begin ()
     "ldi r24, 0\n\t"
     "ldi r25, 0\n\t"
     "rjmp .dead_proc_entry\n\t"
-    );
+  );
 }
 
 __attribute__((used)) void process_terminated ()
@@ -172,10 +192,9 @@ __attribute__((used)) void process_terminated ()
     "ldi r24, lo8(0)\n\t"
     "ldi r25, hi8(0)\n\t"
     "rjmp .dead_proc_entry"
-    );
+  );
 }
 
-void process_timer_interrupt ();
 
 __attribute__((used)) void yield ()
 {
@@ -183,6 +202,7 @@ __attribute__((used)) void yield ()
   asm volatile ("cli\n\t");
   asm volatile ("rjmp process_timer_interrupt\n\t");
 }
+
 
 __attribute__((used)) void process_timer_interrupt()
 {
@@ -276,8 +296,8 @@ __attribute__((used)) void process_timer_interrupt()
 
 
 /*
- * Stack: save 32 regs, +2 for entry point +2 for ret address
- */
+   Stack: save 32 regs, +2 for entry point +2 for ret address
+*/
 #define EXTRA_SPACE 37
 #define EXTRA_PAD 4
 
@@ -297,22 +317,22 @@ unsigned int process_init (void (*f) (void), int n, process_t * newProcess)
   }
 
   /* Create the "standard" stack, including entry point */
-  for (i=0; i < n; i++) {
-      stkspace[i] = 0;
+  for (i = 0; i < n; i++) {
+    stkspace[i] = 0;
   }
 
   n -= EXTRA_PAD;
 
-  stkspace[n-1] = ( (unsigned int) process_terminated ) & 0xff;
-  stkspace[n-2] = ( (unsigned int) process_terminated ) >> 8;
-  stkspace[n-3] = ( (unsigned int) f ) & 0xff;
-  stkspace[n-4] = ( (unsigned int) f ) >> 8;
+  stkspace[n - 1] = ( (unsigned int) process_terminated ) & 0xff;
+  stkspace[n - 2] = ( (unsigned int) process_terminated ) >> 8;
+  stkspace[n - 3] = ( (unsigned int) f ) & 0xff;
+  stkspace[n - 4] = ( (unsigned int) f ) >> 8;
 
   /* SREG */
-  stkspace[n-EXTRA_SPACE] = SREG;
-//  return stkspace;
+  stkspace[n - EXTRA_SPACE] = SREG;
+  //  return stkspace;
   stk = (unsigned int)stkspace + n - EXTRA_SPACE - 1;
-//
+  //
   newProcess->stkspace = stkspace;
   return stk;
 }
@@ -329,7 +349,7 @@ __attribute__((used)) unsigned int process_select (unsigned int cursp)
 {
   /* Called by the runtime system to select another process.
      "cursp" = the stack pointer for the currently running process
-  */ 
+  */
 
   if (current_process && current_process->block == 1)
   {
@@ -342,16 +362,25 @@ __attribute__((used)) unsigned int process_select (unsigned int cursp)
     if (PriorityQueueIsEmpty(prio_queue)) {
       // No process has been created, or all processes have terminated
       // Free current_process is available
-      if (current_process){
+      if (current_process) {
+        if (current_process->wcet != -1){
+          // check job termination status if a RT process
+          printJobTerm(current_process);
+        }
         free(current_process->stkspace);
         free(current_process);
       }
+      current_process = NULL;
       return 0;
     }
-    else {                           
+    else {
       // If no current_process, then we need to schedule one
       // else, free current_process and stackspace
-      if (current_process){
+      if (current_process) {
+        if (current_process->wcet != -1){
+          // check job termination status if a RT process
+          printJobTerm(current_process);
+        }
         free(current_process->stkspace);
         free(current_process);
       }
@@ -369,18 +398,28 @@ __attribute__((used)) unsigned int process_select (unsigned int cursp)
     }
   }
 
-  // Here, we know we have a queue, and current process. We want to find the 
+  // Here, we know we have a queue, and current process. We want to find the
   // end of the queue, and attach the current process to the end of it
-  // and then we want to move the process 
+  // and then we want to move the process
   // that queue is pointing to to current process
   // and then have the tail of the queue point to
   // the current process. Set the new tail to point to null.
 
+  // If an element is a real-time job, we peekPQueue to obtain the first element in queue.
+  // If currTop is not real time job, return current_process sp;
+  // If currTop is real time job and currTop->finish_time < current_process->finish_time, 
+  // push current_process onto stack and pop currTop;
+  // If currTop is real time job and currTop->finish_time > current_process->finish_time, return current sp;
+  process_t * currTop = peekPQueue(prio_queue);
+  if (currTop->wcet == -1 || (currTop->wcet != -1 && currTop->finish_time > current_process->finish_time)){
+    current_process->sp = cursp;
+    return current_process->sp;
+  }
+  //comment this out to get one led blinking
   current_process->sp = cursp;
   current_process->next = NULL;
   pushPQueue(prio_queue, current_process);
   current_process = popPQueue(prio_queue);
-  //comment this out to get one led blinking
   return current_process->sp;
 }
 
@@ -391,30 +430,28 @@ void process_start (void)
 }
 
 
-int process_create_general(void (*f)(void), int n, unsigned int prio, int wcet, process_t *new_process){
+int process_create_general(void (*f)(void), int n, unsigned int prio, int wcet, process_t *new_process) {
   // All new processes call this function to fill in the details
   /* Create a new process */
-  if (prio < 0){
+  if (prio < 0) {
     // cannot have negative priority
     return -1;
-  } else
-  if ((prio >= 256) && wcet == -1){
+  } else if ((prio >= 256) && wcet == -1) {
     // elements cannot schedule priorities >= 256 if not a real time job
-    return -1; 
-  } else
-  if (prio != 256 && wcet != -1){
+    return -1;
+  } else if (prio != 256 && wcet != -1) {
     // real time jobs can only have priority of 256
     return -1;
   }
 
   // Get stack_pointer from process_init (if successful, will also set new_process->stkspace)
   unsigned int stack_pointer = process_init(f, n, new_process);
-  
-  if (stack_pointer == 0) {                  
+
+  if (stack_pointer == 0) {
     // Check to see if there is memory for stack and malloc
     return -1;
   }
-  
+
   new_process->sp = stack_pointer;
   new_process->next = NULL;                    // New process doesn't point to anything
   new_process->block = 0;                      // New process starts unblocked
@@ -424,18 +461,18 @@ int process_create_general(void (*f)(void), int n, unsigned int prio, int wcet, 
   return 0;
 }
 
-int process_create(void (*f)(void), int n){
+int process_create(void (*f)(void), int n) {
 
-  process_t *new_process = malloc(sizeof(process_t));
-  
-  if (new_process == NULL) { 
+  process_t *new_process = (process_t *)malloc(sizeof(process_t));
+
+  if (new_process == NULL) {
     // or, !new_process
     return -1;
   }
-  
+
   // Default priority is 128
   int res = process_create_general (f, n, 128, -1, new_process);
-  if (res == -1){
+  if (res == -1) {
     return -1;
   }
   pushPQueue(prio_queue, new_process);
@@ -445,46 +482,47 @@ int process_create(void (*f)(void), int n){
 
 int process_create_prio (void (*f)(void), int n, unsigned int prio)
 {
-  process_t *new_process = malloc(sizeof(process_t));
-  
-  if (new_process == NULL) { 
+  process_t *new_process = (process_t *)malloc(sizeof(process_t));
+
+  if (new_process == NULL) {
     // or, !new_process
     return -1;
   }
   int res = process_create_general (f, n, prio, -1, new_process);
-  if (res == -1){
+  if (res == -1) {
     return -1;
   }
   pushPQueue(prio_queue, new_process);
   return new_process->sp;
 }
 
-int process_create_rtjob(void (*f)(void), int n, unsigned int wcet, unsigned int deadline){
-  unsigned long elapsed_time = millis();
-  if (wcet <= deadline){
+int process_create_rtjob(void (*f)(void), int n, unsigned int wcet, unsigned int deadline) {
+  if (wcet >= deadline) {
     // Worst case execution time is worse than deadline
     // Reject job
+    printFromC_ln("Job Rejected: WCET is greater than deadline\n");
     return -1;
   }
-  
-  process_t *new_process = malloc(sizeof(process_t));
-  
-  if (new_process == NULL) { 
+
+  process_t *new_process = (process_t *)malloc(sizeof(process_t));
+
+  if (new_process == NULL) {
     // or, !new_process
     return -1;
   }
   
-  // Default priority is 128
   int res = process_create_general (f, n, 256, wcet, new_process);
-  if (res == -1){
+  if (res == -1) {
     return -1;
   }
-  pushPQueue(prio_queue, new_process);
-  elapsed_time = millis() - elapsed_time;
-
+  
   // Fill in start_time and finish time
-  new_process->start_time = millis();
-  new_process->finish_time = new_process->start_time + deadline;
+  // Finish_time is a hard deadline (measured in ms)
+  new_process->start_time = getCurrMillis();
+  new_process->finish_time = (new_process->start_time + deadline);
+
+  // Prio_queue automatically sorts processes based on finish time
+  pushPQueue(prio_queue, new_process);
   return 0;
 }
 
@@ -498,27 +536,27 @@ void lock_init(lock_t *l) {
 void lock_acquire(lock_t *l) {
 
   asm volatile ("cli\n\t");                  // disable interrupts before checking lock aspects
-  
+
   if (l->current == NULL) {                  // No process currently holds the lock
-                                             // So allow the current process requesting the lock to aquire the lock
+    // So allow the current process requesting the lock to aquire the lock
     l->current = current_process;
-    l->current->block = 0;                   // Not nessecary in this logic implementation 
+    l->current->block = 0;                   // Not nessecary in this logic implementation
   }
   else if (l->current != current_process) {
-                                            // Block the current process if it doesn't have the lock
-                                            // and throw it on the lock waiting queue
-     if (l->locked == NULL) {
-                                            // Nothing is waiting for the lock
-                                            // Add to the lock queue, make it the head
-                                            // Make it point to null since there is nothing else in the queue
+    // Block the current process if it doesn't have the lock
+    // and throw it on the lock waiting queue
+    if (l->locked == NULL) {
+      // Nothing is waiting for the lock
+      // Add to the lock queue, make it the head
+      // Make it point to null since there is nothing else in the queue
       current_process->block = 1;
       current_process->next = NULL;
       l->locked = current_process;
-      
-     }
-     else {
-                                            // Otherwise, there is a queue for the lock
-                                            // Find the tail of the lock queue, and link the current process to it
+
+    }
+    else {
+      // Otherwise, there is a queue for the lock
+      // Find the tail of the lock queue, and link the current process to it
       int flag = 1;
       process_t *process_track = l->locked;
 
@@ -527,28 +565,26 @@ void lock_acquire(lock_t *l) {
           flag = 0;                             // We found the tail; process_track holds the tail
         }
         else {
-        process_track = process_track->next;    // Point to the next waiting process in the lock queue
+          process_track = process_track->next;    // Point to the next waiting process in the lock queue
         }
       }
-                                                // Add the current process to the lock queue of that particular lock
-      current_process->next = NULL; 
+      // Add the current process to the lock queue of that particular lock
+      current_process->next = NULL;
       process_track->next = current_process;
-                                                // make current process to point to null
-     }
-                                                // Block the current process, and call yield() to go to next function
-     current_process->block = 1;
-   
-     yield();    
+      // make current process to point to null
+    }
+    // Block the current process, and call yield() to go to next function
+    current_process->block = 1;
+
+    yield();
   }
   asm volatile ("sei\n\t"); // re-enable interrupts after you yield
 
 }
 
-
-
 void lock_release(lock_t *l) {
   asm volatile ("cli\n\t");                  // disable interrupts before checking lock aspects
- 
+
   if (l->locked == NULL) {                   // No process is waiting for the lock, so
     l->current = NULL;                       // release the lock, set it to null and return
     l->current->block = 0;
@@ -558,7 +594,7 @@ void lock_release(lock_t *l) {
   // Otherwise, there is something in the lock queue
   // Let the first thing in the lock queue acquire the lock
   // and then send it to the end of the ready queue
-  if (l->locked != NULL) {                    
+  if (l->locked != NULL) {
     l->current = l->locked;
     l->current->block = 0;                   // unblock the process
     l->locked = l->locked->next;             // locked now points to whatever is next in the lock queue, or null
@@ -568,7 +604,7 @@ void lock_release(lock_t *l) {
   // If the ready queue is empty, make the process popping off the lock queue the head of the ready queue
   l->current->block = 0;
   l->current->next = NULL;
-  pushPQueue(prio_queue, l->current);    
+  pushPQueue(prio_queue, l->current);
   asm volatile ("sei\n\t");             // re-enable interrupts
 }
 

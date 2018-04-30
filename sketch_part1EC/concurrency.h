@@ -18,6 +18,11 @@ typedef struct process_state process_t;
       implementation.
    */
 
+// External functions used in cpp file.
+extern void printFromC(const char *);
+extern void printFromC_ln(const char *);
+extern void printJobTerm(process_t *);    // Prints out all terminating job information
+extern unsigned long getCurrMillis();     // Hack to print out current millis from Arduino library
 
 /*------------------------------------------------------------------------
    THE FOLLOWING FUNCTIONS MUST BE PROVIDED.
@@ -35,13 +40,13 @@ struct p_queue {
   process_t* usedPriority[257];
 };
 
-int PriorityQueueIsEmpty(PriorityQueue * h);
+process_t * peekPQueue(PriorityQueue * h);
 void displayPQueue(PriorityQueue * h);
 int PriorityQueueInit(PriorityQueue * p);
 int pushPQueue (PriorityQueue * h, process_t *);
 process_t * popPQueue(PriorityQueue * h);
 int destroyPQueue(PriorityQueue *);
-
+int isFirstRealTimeJob(PriorityQueue * h);
 
 /* ====== Part 1 ====== */
 struct process_state
@@ -53,8 +58,8 @@ struct process_state
   unsigned int priority;
   unsigned char * stkspace;
   unsigned int wcet;
-  unsigned long start_time;
-  unsigned long finish_time;
+  unsigned long start_time;     // Takes in millis() of when program first receives process
+  unsigned long finish_time;    // start_time + deadline
 };
 
 extern process_t *current_process; 
@@ -69,7 +74,7 @@ __attribute__((used)) unsigned int process_select (unsigned int cursp);
 void process_start (void);
 /* Starts up the concurrent execution */
 
-int process_create_general(void (*f)(void), int n, unsigned int prio, int wcet, int deadline, process_t *new_process);
+int process_create_general(void (*f)(void), int n, unsigned int prio, int wcet, process_t *new_process);
 
 int process_create (void (*f)(void), int n);
 /* Create a new process - calls process_create_prio with prio == 128*/
@@ -95,12 +100,12 @@ void lock_init (lock_t *l);
 void lock_acquire (lock_t *l);
 void lock_release (lock_t *l);
 
-
 /*-- functions provided in the .c file --*/
 
 // Process_init altered to keep track of stackspace (for freeing later)
 unsigned int process_init (void (*f) (void), int n, process_t * );
 void process_begin ();
+void process_timer_interrupt ();
 void yield ();
 
 #ifdef __cplusplus
