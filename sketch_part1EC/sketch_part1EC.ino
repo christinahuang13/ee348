@@ -29,11 +29,13 @@ void blink1 (void)
 void blink2 (void)
 {
    while (1) {
+     Serial.println("blink2 start");
+    if (serialEventRun) serialEventRun();
       digitalWrite (2, HIGH);
       delay (400);
       digitalWrite (2, LOW);
       delay (400);
-    Serial.println("blink2");
+    Serial.println("blink2 end");
     if (serialEventRun) serialEventRun();
 
    }
@@ -43,11 +45,13 @@ void blink2 (void)
 void blink3 (void)
 {
    while (1) {
+     Serial.println("blink3 start");
+    if (serialEventRun) serialEventRun();
       digitalWrite (3, HIGH);
       delay (300);
       digitalWrite (3, LOW);
       delay (300);
-    Serial.println("blink3");
+    Serial.println("blink3 end");
     if (serialEventRun) serialEventRun();
    }
 }
@@ -78,7 +82,6 @@ void blink5 (void){
   //terminating test
   int count = 10;
   while (count > 0){
-//    noInterrupts();
       lock_acquire (&m);
         Serial.println("Blink 5 lock acquired");
   if (serialEventRun) serialEventRun();
@@ -123,6 +126,17 @@ void blink6 (void){
   if (serialEventRun) serialEventRun();
 }
 
+void priority_test(){
+  // Blink 1 and 5 has lower priority than blink6
+  // Blink 6 should be the only process running until it terminates
+  // Then blink 1 and blink 5 will run interchngeably until blink5 terminates
+  // Blink 1 will run forever. 
+  process_create_prio (blink1, 64, 100);
+  process_create_prio (blink2, 64, 100);
+  process_create_prio (blink5, 64, 122);
+  process_create_prio (blink6, 64, 200); 
+}
+
 void setup() {
   // put your setup code here, to run once:
   pinMode (13, OUTPUT);
@@ -134,15 +148,16 @@ void setup() {
   lock_init (&m);
   prio_queue = (PriorityQueue *)malloc(sizeof(PriorityQueue));
   PriorityQueueInit(prio_queue);
-  process_create (blink1, 32);
-  process_create (blink2, 32);
-//  Serial.println(process_create (blink3, 32));
-  process_create (blink4, 32);
+
+  priority_test();
 }
+
 
 
 void loop() {
   Serial.println ("start...");
   process_start ();
+//  Serial.println(popPQueue(prio_queue)->sp);
+//  Serial.println(popPQueue(prio_queue)->sp);
   Serial.println ("done!");
 }

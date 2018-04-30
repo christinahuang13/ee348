@@ -5,6 +5,8 @@
 #define INIT_SIZE (10)
 
 /* ========= START OF Priority Queue Implementation ========= */
+
+int runflag = 0;
 int PriorityQueueInit(PriorityQueue * p){
   p->max_size = INIT_SIZE;
   p->num_nodes = 0;
@@ -73,8 +75,6 @@ int pushPQueue (PriorityQueue * h, process_t * newElem){
     h->usedPriority[newElem->priority] = newElem;
   } else{
     // heap contains index with same priority. Find empty space at end of linked list
-//    printf("%i, %i\n", index, newElem->priority );
-    
     process_t * temp = t;
     while(temp && temp->next != NULL){
       temp = temp->next;
@@ -93,8 +93,8 @@ process_t * popPQueue(PriorityQueue * h){
   process_t * temp = h->heap[h->num_nodes-1];
   // You can dynamically downsize this queue but I'm too lazy to
   removed = h->heap[0];
-//  printf("heapify: %i, %i, %i\n", h->num_nodes, removed->sp, removed->priority);
   h->heap[0] = h->heap[0]->next;
+  
   if (h->heap[0] == NULL){
     h->num_nodes--;
     // Last node that that priority removed. Update usedPriority and heapify.
@@ -103,6 +103,7 @@ process_t * popPQueue(PriorityQueue * h){
     heapify(h->heap, 0, h->num_nodes);
   } else{
     h->usedPriority[removed->priority] = h->heap[0];
+    removed->next = NULL;
   }
   return removed;
 }
@@ -279,7 +280,7 @@ __attribute__((used)) void process_timer_interrupt()
 #define EXTRA_SPACE 37
 #define EXTRA_PAD 4
 
-unsigned int process_init (void (*f) (void), int n)
+unsigned int process_init (void (*f) (void), int n, process_t * newProcess)
 {
   unsigned long stk;
   int i;
@@ -311,6 +312,7 @@ unsigned int process_init (void (*f) (void), int n)
 //  return stkspace;
   stk = (unsigned int)stkspace + n - EXTRA_SPACE - 1;
 //
+  newProcess->stkspace = stkspace;
   return stk;
 }
 
@@ -331,9 +333,6 @@ __attribute__((used)) unsigned int process_select (unsigned int cursp)
   if (current_process && current_process->block == 1)
   {
     current_process->sp = cursp;      // Process is blocked, so we know it's waiting to acquire a lock in a lock queue
-//    current_process = queue;          // Set sp to cursp of the process, then switch to the next process in the ready queue
-//    queue = queue->next;
-//    current_process->next = NULL;
     current_process = popPQueue(prio_queue);
     return current_process->sp;
   }
@@ -341,15 +340,20 @@ __attribute__((used)) unsigned int process_select (unsigned int cursp)
   if (cursp == 0) {
     if (PriorityQueueIsEmpty(prio_queue)) {
       // No process has been created, or all processes have terminated
+      // Free current_process is available
+      if (current_process){
+        free(current_process->stkspace);
+        free(current_process);
+      }
       return 0;
     }
     else {                           
-      // We need to schedule the first process
-      // Set the current process to the first value in the queue
-      // Set queue to whatever is next in the queue
-//      current_process = queue;
-//      queue = queue->next;
-//      current_process->next = NULL;
+      // If no current_process, then we need to schedule one
+      // else, free current_process and stackspace
+      if (current_process){
+        free(current_process->stkspace);
+        free(current_process);
+      }
       current_process = popPQueue(prio_queue);
       return current_process->sp;
     }
@@ -371,31 +375,6 @@ __attribute__((used)) unsigned int process_select (unsigned int cursp)
   // and then have the tail of the queue point to
   // the current process. Set the new tail to point to null.
 
-  /*
-  process_t *process_track = queue;
-
-  int flag = 1;
-  while (flag) {
-    if (process_track->next == NULL) {
-    // We know that next is null, so process_track  
-    // is pointing to the head
-    // Set flag to 0, end while-loop
-    flag = 0;
-    }
-    else {
-      process_track = process_track->next;
-    }   
-  }
-  // process_track holds the end of the queue
-
-  current_process->sp = cursp;
-  current_process->next = NULL;
-  
-  process_track->next = current_process;
-  
-  current_process = queue;
-  queue = queue->next;
-  */
   current_process->sp = cursp;
   current_process->next = NULL;
   pushPQueue(prio_queue, current_process);
@@ -410,54 +389,35 @@ void process_start (void)
   process_begin();
 }
 
-int process_create (void (*f)(void), int n)
+int process_create(void (*f)(void), int n){
+  // Default priority is 128
+  return process_create_prio (f, n, 128);
+}
+
+int process_create_prio (void (*f)(void), int n, unsigned int prio)
 {
   /* Create a new process */
-  unsigned int stack_pointer = process_init(f, n);
-  
-  if (stack_pointer == 0) {                  
-    // Check to see if there is memory for stack and malloc
-    return -1;
-  }
-
   process_t *new_process = malloc(sizeof(process_t));
   
   if (new_process == NULL) { 
     // or, !new_process
     return -1;
   }
+
+  // Get stack_pointer from process_init (if successful, will also set new_process->stkspace)
+  unsigned int stack_pointer = process_init(f, n, new_process);
+  
+  if (stack_pointer == 0) {                  
+    // Check to see if there is memory for stack and malloc
+    return -1;
+  }
   
   new_process->sp = stack_pointer;
   new_process->next = NULL;                    // New process doesn't point to anything
   new_process->block = 0;                      // New process starts unblocked
-  new_process->priority = 128;
-//  if (queue == NULL) {
-//    // Make the current process the head
-//    // Since there is currently nothing else in the queue
-//    queue = new_process;
-//  }
-//  else {
-//    // We know there is a queue
-//    // Find the last process to execute in the queue and 
-//    // link the new process to it
-//    process_t *process_track = queue;
-//    int flag = 1;
-//    while (flag) {   
-//      if (process_track->next == NULL) {
-//        // We know that next is null, so process_track  
-//        // is pointing to the head
-//        // Set flag to 0, end while-loop
-//        flag = 0;
-//       }
-//       else {
-//        process_track = process_track->next;
-//       }  
-//    }
-//    // Set the process at the end of the queue to point to the new process
-//    process_track->next = new_process;
-//  }
-    pushPQueue(prio_queue, new_process);
-    return new_process->sp;
+  new_process->priority = prio;
+  pushPQueue(prio_queue, new_process);
+  return new_process->sp;
 }
 
 /************************** Lock related functions and code ****************************/
@@ -536,39 +496,9 @@ void lock_release(lock_t *l) {
   // l->current points to the process that now holds the lock
   // Find the end of the ready queue, and put the new process with the lock on the ready queue
   // If the ready queue is empty, make the process popping off the lock queue the head of the ready queue
-
-  if (queue == NULL) {
-   // Make the current process the head
-   // Since there is currently nothing else in the queue
-   queue = l->current;
-   queue->block = 0;
-   queue->next = NULL;
-  }
- else {
-   // If there is something in the queue, find the tail and attach the process there.
-   process_t *process_track = queue;
-
-  int flag = 1;
-  
-  while (flag) {
-    if (process_track->next == NULL) {
-    // We know that next is null, so process_track  
-    // is pointing to the tail
-    // Set flag to 0, end while-loop
-    flag = 0;
-    }
-    else {
-      process_track = process_track->next;
-    }   
-  }
-  // process_track holds the end of the queue
-  // set new end of the queue to be the process that
-  // holds the lock, and make sure the new tail points to null
-  // and that the process is unblocked
   l->current->block = 0;
-  l->current->next = NULL;                                    
-  process_track->next = l->current;
- }
+  l->current->next = NULL;
+  pushPQueue(prio_queue, l->current);    
   asm volatile ("sei\n\t");             // re-enable interrupts
 }
 

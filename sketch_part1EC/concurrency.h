@@ -26,7 +26,7 @@ typedef struct process_state process_t;
 typedef struct p_queue PriorityQueue;
 extern PriorityQueue * prio_queue;
 
-int process_create_prio(void (*f)(void), int n, unsigned char prio);
+//int process_create_prio(void (*f)(void), int n, unsigned int prio);
 
 struct p_queue {
   process_t ** heap; // Array of process_t pointers representing linked list
@@ -51,6 +51,7 @@ struct process_state
   struct process_state *next;
   int block;                        // 1 if blocks, 0 if not blocked
   unsigned int priority;
+  unsigned char * stkspace;
 };
 
 extern process_t *current_process; 
@@ -66,9 +67,10 @@ void process_start (void);
 /* Starts up the concurrent execution */
 
 int process_create (void (*f)(void), int n);
-/* Create a new process */
+/* Create a new process - calls process_create_prio with prio == 128*/
 
-
+int process_create_prio (void (*f)(void), int n, unsigned int prio);
+/* Create a new priority process */
 
 /* ===== Part 2 ====== */
 typedef struct lock_state lock_t;
@@ -89,7 +91,8 @@ void lock_release (lock_t *l);
 
 /*-- functions provided in the .c file --*/
 
-unsigned int process_init (void (*f) (void), int n);
+// Process_init altered to keep track of stackspace (for freeing later)
+unsigned int process_init (void (*f) (void), int n, process_t * );
 void process_begin ();
 void yield ();
 
