@@ -6,11 +6,12 @@
 
 /* ========= START OF Priority Queue Implementation ========= */
 
-int runflag = 0;
 int PriorityQueueInit(PriorityQueue * p){
   p->max_size = INIT_SIZE;
   p->num_nodes = 0;
   for (int i = 0; i < 257; i++){
+    // Max priority is 256 and is reserved for rt jobs. 
+    // Other jobs have priority 0 -> 255
     p->usedPriority[i] = NULL;
   }
   p->heap = malloc(sizeof (process_t *) * (INIT_SIZE));
@@ -389,18 +390,20 @@ void process_start (void)
   process_begin();
 }
 
-int process_create(void (*f)(void), int n){
-  // Default priority is 128
-  return process_create_prio (f, n, 128);
-}
 
-int process_create_prio (void (*f)(void), int n, unsigned int prio)
-{
+int process_create_general(void (*f)(void), int n, unsigned int prio, int wcet, process_t *new_process){
+  // All new processes call this function to fill in the details
   /* Create a new process */
-  process_t *new_process = malloc(sizeof(process_t));
-  
-  if (new_process == NULL) { 
-    // or, !new_process
+  if (prio < 0){
+    // cannot have negative priority
+    return -1;
+  } else
+  if ((prio >= 256) && wcet == -1){
+    // elements cannot schedule priorities >= 256 if not a real time job
+    return -1; 
+  } else
+  if (prio != 256 && wcet != -1){
+    // real time jobs can only have priority of 256
     return -1;
   }
 
@@ -416,8 +419,73 @@ int process_create_prio (void (*f)(void), int n, unsigned int prio)
   new_process->next = NULL;                    // New process doesn't point to anything
   new_process->block = 0;                      // New process starts unblocked
   new_process->priority = prio;
+  new_process->wcet = wcet;
+
+  return 0;
+}
+
+int process_create(void (*f)(void), int n){
+
+  process_t *new_process = malloc(sizeof(process_t));
+  
+  if (new_process == NULL) { 
+    // or, !new_process
+    return -1;
+  }
+  
+  // Default priority is 128
+  int res = process_create_general (f, n, 128, -1, new_process);
+  if (res == -1){
+    return -1;
+  }
+  pushPQueue(prio_queue, new_process);
+  return 0;
+}
+
+
+int process_create_prio (void (*f)(void), int n, unsigned int prio)
+{
+  process_t *new_process = malloc(sizeof(process_t));
+  
+  if (new_process == NULL) { 
+    // or, !new_process
+    return -1;
+  }
+  int res = process_create_general (f, n, prio, -1, new_process);
+  if (res == -1){
+    return -1;
+  }
   pushPQueue(prio_queue, new_process);
   return new_process->sp;
+}
+
+int process_create_rtjob(void (*f)(void), int n, unsigned int wcet, unsigned int deadline){
+  unsigned long elapsed_time = millis();
+  if (wcet <= deadline){
+    // Worst case execution time is worse than deadline
+    // Reject job
+    return -1;
+  }
+  
+  process_t *new_process = malloc(sizeof(process_t));
+  
+  if (new_process == NULL) { 
+    // or, !new_process
+    return -1;
+  }
+  
+  // Default priority is 128
+  int res = process_create_general (f, n, 256, wcet, new_process);
+  if (res == -1){
+    return -1;
+  }
+  pushPQueue(prio_queue, new_process);
+  elapsed_time = millis() - elapsed_time;
+
+  // Fill in start_time and finish time
+  new_process->start_time = millis();
+  new_process->finish_time = new_process->start_time + deadline;
+  return 0;
 }
 
 /************************** Lock related functions and code ****************************/
@@ -475,6 +543,8 @@ void lock_acquire(lock_t *l) {
   asm volatile ("sei\n\t"); // re-enable interrupts after you yield
 
 }
+
+
 
 void lock_release(lock_t *l) {
   asm volatile ("cli\n\t");                  // disable interrupts before checking lock aspects

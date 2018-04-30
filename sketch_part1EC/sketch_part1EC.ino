@@ -127,10 +127,9 @@ void blink6 (void){
 }
 
 void priority_test(){
-  // Blink 1 and 5 has lower priority than blink6
-  // Blink 6 should be the only process running until it terminates
-  // Then blink 1 and blink 5 will run interchngeably until blink5 terminates
-  // Blink 1 will run forever. 
+  // Blink 6 has highest priority and should run exclusively until it terminates
+  // Then Blink 5 will run exclusively until it terminates
+  // Then Blink 1 and Blink 2 will run concurrently for an infintely long time
   process_create_prio (blink1, 64, 100);
   process_create_prio (blink2, 64, 100);
   process_create_prio (blink5, 64, 122);
@@ -152,12 +151,8 @@ void setup() {
   priority_test();
 }
 
-
-
 void loop() {
   Serial.println ("start...");
   process_start ();
-//  Serial.println(popPQueue(prio_queue)->sp);
-//  Serial.println(popPQueue(prio_queue)->sp);
   Serial.println ("done!");
 }

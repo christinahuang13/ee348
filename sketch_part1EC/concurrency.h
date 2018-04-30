@@ -52,6 +52,9 @@ struct process_state
   int block;                        // 1 if blocks, 0 if not blocked
   unsigned int priority;
   unsigned char * stkspace;
+  unsigned int wcet;
+  unsigned long start_time;
+  unsigned long finish_time;
 };
 
 extern process_t *current_process; 
@@ -66,12 +69,16 @@ __attribute__((used)) unsigned int process_select (unsigned int cursp);
 void process_start (void);
 /* Starts up the concurrent execution */
 
+int process_create_general(void (*f)(void), int n, unsigned int prio, int wcet, int deadline, process_t *new_process);
+
 int process_create (void (*f)(void), int n);
 /* Create a new process - calls process_create_prio with prio == 128*/
 
 int process_create_prio (void (*f)(void), int n, unsigned int prio);
 /* Create a new priority process */
 
+int process_create_rtjob(void(*f)(void), int n, unsigned int wcet, unsigned int deadline);
+/* Create a new real time process */
 /* ===== Part 2 ====== */
 typedef struct lock_state lock_t;
   /* you have to define the lock_state structure */
